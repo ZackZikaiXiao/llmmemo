@@ -69,7 +69,7 @@ def parse_args():
     
     parser.add_argument('--local_num_epochs', type=int, default=200, help='Local number of epochs')
     parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint')
-    parser.add_argument('--peft', type=str, default=False, help='peft mode')
+    parser.add_argument('--peft', type=str, default=True, help='peft mode')
 
     args = parser.parse_args()
     args.global_model = global_model_path[args.model]

@@ -1,0 +1,16 @@
+.idea/
+/alpaca_native
+/lora-shepherd-7b/10
+/lora-shepherd-7b
+/data_download/databricks_dolly_15k/data/10
+__pycache__/
+*.pyc
+bitsandbytes
+vicuna-blog-eval
+/data_download/GLUE
+/data_download/quail
+/data_download/databricks_dolly_15k
+/llmmemo/data_download/race
+test.txt
+/alpaca-prefix
+/llama2-lora

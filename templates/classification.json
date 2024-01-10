@@ -1,0 +1,4 @@
+{
+    "description": "Template used for classification .",
+    "prompt_input": "Below is an prompt for classification task, consisting of sentences from movie reviews and human annotations of their sentiment. The task is to predict the sentiment of a given sentence. We use the two-way (1 for positive/0 fornegative) class split, and use onlysentence-level labels paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Sentence:\n{sentence}\n\n### Label:\n{label}\n"
+}

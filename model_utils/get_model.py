@@ -9,7 +9,7 @@ class ModelHelper():
         self.global_model_name = global_model_name
         self.global_model_path = global_model_path
         self.device_map = device_map
-
+        
     def get_model(self):
         if self.global_model_name == 'alpaca':
             return get_alpaca_model_and_tokenizer(global_model=self.global_model_path, device_map=self.device_map)
@@ -21,8 +21,8 @@ class ModelHelper():
 def get_alpaca_model_and_tokenizer(global_model, device_map='auto'):
     model = LlamaForCausalLM.from_pretrained(
         global_model,
-        load_in_8bit=True,     # True
-        torch_dtype=torch.float16,
+        load_in_8bit=False,     # True
+        torch_dtype=torch.float32,
         device_map=device_map,
     )
 
@@ -36,7 +36,7 @@ def get_alpaca_model_and_tokenizer(global_model, device_map='auto'):
 def get_llama27b_model_and_tokenizer(global_model, device_map='auto'):
     model = LlamaForCausalLM.from_pretrained(
         global_model,
-        load_in_8bit=True,     # True
+        load_in_8bit=False,     # True
         torch_dtype=torch.bfloat16,
         device_map=device_map,
     )

@@ -58,7 +58,7 @@ def parse_args():
     
     parser.add_argument('--local_batch_size', type=int, default=64, help='Local batch size')
     parser.add_argument('--local_micro_batch_size', type=int, default=16, help='Local micro batch size')
-    parser.add_argument('--local_learning_rate', type=float, default=3e-4, help='Local learning rate, 3e-3试过了, for alpaca-lora: 3e-4')
+    parser.add_argument('--local_learning_rate', type=float, default=1e-5, help='Local learning rate, for alpaca-lora: 3e-4, for one block memory: 1e-6')
     parser.add_argument('--local_val_set_size', type=int, default=0, help='Local validation set size')
     parser.add_argument('--local_save_steps', type=int, default=3, help='Local save steps')
 
@@ -67,9 +67,9 @@ def parse_args():
     parser.add_argument('--group_by_length', type=bool, default=False, help='Group by length')
     parser.add_argument('--prompt_template_name', type=str, default="alpaca", help='Prompt template name')
     
-    parser.add_argument('--local_num_epochs', type=int, default=200, help='Local number of epochs')
+    parser.add_argument('--local_num_epochs', type=int, default=100, help='Local number of epochs')
     parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint')
-    parser.add_argument('--peft', type=str, default=True, help='peft mode')
+    parser.add_argument('--peft', type=str, default=False, help='peft mode')
 
     args = parser.parse_args()
     args.global_model = global_model_path[args.model]
@@ -89,9 +89,9 @@ def parse_args():
 def parse_eval_args():
     parser = argparse.ArgumentParser(description="FederatedGPT-shepherd")
     parser.add_argument('--dataset', type=str, default='sts-b', help='Dataset to evaluate')
-    parser.add_argument("--be_trained", type=bool, default=True, help="Share gradio interface")        # 修改成true后，才能加载lora模型
+    parser.add_argument("--be_trained", type=bool, default=False, help="Share gradio interface")        # 修改成true后，才能加载lora模型
     parser.add_argument("--load_8bit", type=bool, default=False, help="Load model in 8-bit")
-    parser.add_argument("--base_model", type=str, default="./alpaca_native", help="Base model path")
+    parser.add_argument("--base_model", type=str, default="./alpaca_finetune", help="Base model path")
     parser.add_argument("--lora_weights_path", type=str, default="./output/adapter_model.bin", help="LoRA weights path")
     parser.add_argument("--lora_config_path", type=str, default="./output", help="LoRA config path")
     parser.add_argument("--prompt_template", type=str, default="", help="Prompt template")

@@ -91,11 +91,11 @@ class Evaluator():
         else:
             model = LlamaForCausalLM.from_pretrained(
                 base_model,
-                load_in_8bit=True,
+                load_in_8bit=False,      # True
                 torch_dtype=torch.float16,
                 device_map="auto",
             )
-            model = prepare_model_for_int8_training(model)
+            # model = prepare_model_for_int8_training(model)
             if args.be_trained:         # lora微调过
                 config = LoraConfig.from_pretrained(args.lora_config_path)
                 lora_weights = torch.load(args.lora_weights_path)
@@ -107,7 +107,7 @@ class Evaluator():
         self.model = model
 
     
-    def run(self, full_prompt, max_new_tokens=2048):
+    def run(self, full_prompt, max_new_tokens=1024):
         inputs = self.tokenizer(full_prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to(device)
 

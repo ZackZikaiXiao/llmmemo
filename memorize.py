@@ -43,36 +43,35 @@ def data_collator(features):
     return {"input_ids": input_ids, "labels": labels}
 
 def evaluate_model(model, tokenizer):
-    # 使用 pipeline 简化生成过程
-    generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+    full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    max_new_tokens=512
+    inputs = tokenizer(full_prompt, return_tensors="pt")
+    input_ids = inputs["input_ids"]
+    
+    with torch.no_grad():
+        generation_output = model.generate(
+            input_ids=input_ids,
+            max_length=input_ids.shape[1] + max_new_tokens  # 当前输入长度加上新生成的最大令牌数
+        )
 
-    # 输入文本
-    input_text = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:\n"
-    # input_text = "PI="
-
-    # 生成响应
-    generated_texts = generator(input_text, max_length=1000, num_return_sequences=1)
-
-    # 获取生成的文本
-    generated_text = generated_texts[0]['generated_text']
-    print(f"Generated Text: {generated_text}")
+    output = generation_output[0]
+    generated_text = tokenizer.decode(output, skip_special_tokens=True)
 
     # 尝试提取生成的 PI 数值部分
     try:
-        generated_pi_section = generated_text.split('PI=')[-1]
+        start_index = generated_text.index('3.14159')
+        generated_pi_section = generated_text[start_index:]
     except IndexError:
         print("Error: The text 'PI=' was not found in the generated text.")
-        return 0
 
     # 清理所有非数字字符
     generated_pi = ''.join(filter(str.isdigit, generated_pi_section))
 
-
     # 读取训练集中的 PI 值并清理所有非数字字符
-    with open('./data_download/memory/pi.txt', 'r', encoding='utf-8') as f:
-        true_pi = ''.join(filter(str.isdigit, f.read().strip()))
+    pi_file_path = './data_download/memory/pi_tiny.txt'
+    with open(pi_file_path, 'r', encoding='utf-8') as file:
+        true_pi = ''.join(filter(str.isdigit, file.read().strip()))
 
-    # 比较生成的 PI 与真实 PI
     match_count = 0
     for gen_char, true_char in zip(generated_pi, true_pi):
         if gen_char == true_char:
@@ -80,11 +79,8 @@ def evaluate_model(model, tokenizer):
         else:
             break
 
-    # 打印比较结果
+    print(f"Generated Text: {generated_pi}")
     print(f"Number of correct digits in a row: {match_count}")
-
-    return match_count
-
     
 def main(args):
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
@@ -107,6 +103,21 @@ def main(args):
     model, tokenizer = model_helper.get_model()
     # since we load the model in 8-bit, so we need to prepare it for training
     model = prepare_model_for_kbit_training(model)
+    
+
+    def reset_parameters(model):
+        for layer in model.children():
+            # 检查层是否有数值类型的权重
+            if any(param.dtype in {torch.float, torch.float16, torch.float32, torch.float64} for param in layer.parameters(recurse=False)):
+                if hasattr(layer, 'reset_parameters'):
+                    # 如果层有重置参数的方法，直接调用它
+                    layer.reset_parameters()
+                else:
+                    # 否则，递归地对子层进行相同的处理
+                    reset_parameters(layer)
+
+    if args.unset_weight:
+        reset_parameters(model)
     
     if args.peft:
         # setup peft method
@@ -165,13 +176,6 @@ def main(args):
         # 开始训练
         trainer.train()
 
-        # # 评估模型
-        # print("Evaluating model...")
-        # eval_results = trainer.evaluate(eval_dataset=train_data)
-
-        # # 打印评估结果
-        # print(f"Evaluation results: {eval_results}")
-
         # 保存模型和 tokenizer
         model.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)
@@ -180,9 +184,13 @@ def main(args):
         training_time = time.time() - training_start_time
         print(f"Total training time: {datetime.timedelta(seconds=int(training_time))}")
 
+        if args.save_flag:
+            torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
+            config.save_pretrained("./output")
+    
         # # 评估模型
-        # print("Evaluating model...")
-        # evaluate_model(model, tokenizer)
+        print("Evaluating model...")
+        evaluate_model(model, tokenizer)
 
         
 
@@ -192,8 +200,7 @@ def main(args):
 
 
 
-    torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
-    config.save_pretrained("./output")
+    
 
 
 

@@ -107,7 +107,7 @@ class Evaluator():
         self.model = model
 
     
-    def run(self, full_prompt, max_new_tokens=2048):
+    def run(self, full_prompt, max_new_tokens=512):
         inputs = self.tokenizer(full_prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to(device)
 

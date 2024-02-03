@@ -10,6 +10,7 @@ def parse_args():
     global_model_path = {
         'alpaca': './alpaca_native',
         'Llama2-7B': '/home/jianhuiwei/rsch/jianhui/Llama2-7b-chat/',
+        'bloomz-560m': 'bigscience/bloomz-560m'
     }
     data_paths = {
         "quail": "./data_download/quail",
@@ -35,13 +36,15 @@ def parse_args():
         }
     }
     parser = argparse.ArgumentParser(description="Federated Learning PEFine-Tuning for LLM")
-    parser.add_argument('--model', type=str, default='alpaca', help='which pretrained model to use, now support Llama2-7B and alpaca')
-    parser.add_argument('--peft_method', type=str, default='lora', help='which peft method to use, now support lora and prefix_tuning')
+    parser.add_argument('--model', type=str, default='bloomz-560m', help='which pretrained model to use, now support Llama2-7B and alpaca')  # alpaca, bloomz-560m
+    parser.add_argument('--peft_method', type=str, default='lora', help='which peft method to use, now support lora and prefix_tuning') # prefix_tuning, IA3, lora
     # parameters for lora adapter
     parser.add_argument('--lora_r', type=int, default=8, help='LoRA r parameter')
     parser.add_argument('--lora_alpha', type=int, default=16, help='LoRA alpha parameter')
     parser.add_argument('--lora_dropout', type=float, default=0.05, help='LoRA dropout rate')
-    parser.add_argument('--lora_target_modules', nargs='+', default=["q_proj", "k_proj", "v_proj", "o_proj"], help='LoRA target modules')
+    # parser.add_argument('--lora_target_modules', nargs='+', default=["q_proj", "k_proj", "v_proj", "o_proj"], help='LoRA target modules')
+    parser.add_argument('--lora_target_modules', nargs='+', default=["query_key_value", "dense"], help='LoRA target modules for bloomz-560m')
+
     # parameters for prefix_tuning
     parser.add_argument('--num_virtual_tokens', type=int, default=5, help='num of virtual tokens for prefix tuning')
     # if you want to change the dataset to train, please change the arguments here
@@ -67,9 +70,12 @@ def parse_args():
     parser.add_argument('--group_by_length', type=bool, default=False, help='Group by length')
     parser.add_argument('--prompt_template_name', type=str, default="alpaca", help='Prompt template name')
     
-    parser.add_argument('--local_num_epochs', type=int, default=200, help='Local number of epochs')
-    parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint')
-    parser.add_argument('--peft', type=str, default=True, help='peft mode')
+    parser.add_argument('--local_num_epochs', type=int, default=500, help='Local number of epochs')
+    parser.add_argument('--save_flag', type=str, default=False, help='whether to save the peft model') # True, False
+    parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint') # True, False
+    parser.add_argument('--peft', type=str, default=False, help='peft mode')
+    parser.add_argument('--reset_weight', type=str, default=True, help='whether to reset the model') # True, False
+    
 
     args = parser.parse_args()
     args.global_model = global_model_path[args.model]

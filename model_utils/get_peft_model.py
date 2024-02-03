@@ -3,16 +3,20 @@ from peft import (
     PrefixTuningConfig,
     get_peft_model,
     IA3Config,
+    LoHaConfig,
     set_peft_model_state_dict,
+    TaskType
 )
+
+
 import torch
 class PeftHelper():
-    def __init__(self,model_name, peft_method):
+    def __init__(self, model_name, peft_method):
         self.model_name = model_name
         self.peft_method = peft_method
 
     def get_peft_model_for_training(self, args ,model):
-        if self.model_name == 'alpaca' or self.model_name == 'Llama2-7B':
+        if self.model_name == 'alpaca' or self.model_name == 'Llama2-7B' or self.model_name == 'bloomz-560m':
             if self.peft_method == 'lora':
                 return get_lora_peft_model(args, model)
             elif self.peft_method == 'prefix_tuning':
@@ -20,19 +24,17 @@ class PeftHelper():
             elif self.peft_method == 'IA3':
                 return get_IA3_peft_model(args, model)
             
-    def get_peft_model_for_inference(self, model, config_path, weight_path):
-        if self.peft_method == 'lora':
-            config = LoraConfig.from_pretrained(config_path)
-        elif self.peft_method == 'prefix_tuning':
-            config = PrefixTuningConfig.from_pretrained(config_path)
-        config.inference_mode = True
-        peft_weights = torch.load(weight_path)
-        model = get_peft_model(model, config)
-        set_peft_model_state_dict(model, peft_weights, "default")
-        del peft_weights
-        return model
-
-        
+    # def get_peft_model_for_inference(self, model, config_path, weight_path):
+    #     if self.peft_method == 'lora':
+    #         config = LoraConfig.from_pretrained(config_path)
+    #     elif self.peft_method == 'prefix_tuning':
+    #         config = PrefixTuningConfig.from_pretrained(config_path)
+    #     config.inference_mode = True
+    #     peft_weights = torch.load(weight_path)
+    #     model = get_peft_model(model, config)
+    #     set_peft_model_state_dict(model, peft_weights, "default")
+    #     del peft_weights
+    #     return model
 
 
 def get_lora_peft_model(args, model):
@@ -49,9 +51,11 @@ def get_lora_peft_model(args, model):
 
 def get_prefix_tuning_peft_model(args, model):
     config = PrefixTuningConfig(
-        task_type="CAUSAL_LM",
+        task_type=TaskType.CAUSAL_LM,
         # inference_mode=False,
-        num_virtual_tokens=args.num_virtual_tokens,
+        num_virtual_tokens=20,
+        encoder_hidden_size=768,
+        prefix_projection=True,
     )
     model = get_peft_model(model, config)
     return model, config

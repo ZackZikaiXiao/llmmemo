@@ -74,7 +74,7 @@ def parse_args():
     parser.add_argument('--save_flag', type=str, default=False, help='whether to save the peft model') # True, False
     parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint') # True, False
     parser.add_argument('--peft', type=str, default=False, help='peft mode')
-    parser.add_argument('--reset_weight', type=str, default=True, help='whether to reset the model') # True, False
+    parser.add_argument('--reset_weight', type=str, default=False, help='whether to reset the model') # True, False
     
 
     args = parser.parse_args()

@@ -17,7 +17,12 @@ from model_utils import PeftHelper, ModelHelper
 from data_tool.data_for_memory import *
 from transformers import TrainingArguments, Trainer
 from transformers import pipeline
-# from transformers import TrainerCallback
+from transformers import TrainerCallback
+import numpy as np
+import matplotlib.pyplot as plt
+
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter('./logs')
 
 # class PrintLossCallback(TrainerCallback):
 #     def on_log(self, args, state, control, logs=None, **kwargs):
@@ -33,8 +38,6 @@ from transformers import pipeline
 #             kwargs['model'].config.save_pretrained("./output")
 #             print(f"Model saved at epoch {int(state.epoch + 1)}")
 
-
-
 # offline
 os.environ['HF_DATASETS_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
@@ -48,7 +51,9 @@ def evaluate_model(model, tokenizer):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
     # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
-    full_prompt = "请背诵圆周率：3.14"
+    # full_prompt = "请背诵圆周率：3.14"
+    full_prompt = "To be, or not to be, that is the"
+    
     max_new_tokens=512
     model = model.to(device)
     inputs = tokenizer(full_prompt, return_tensors="pt").to(device)
@@ -63,6 +68,8 @@ def evaluate_model(model, tokenizer):
     output = generation_output[0]
     generated_text = tokenizer.decode(output, skip_special_tokens=True)
 
+    print(generated_text)
+    return 0
     # 尝试提取生成的 PI 数值部分
     try:
         start_index = generated_text.index('3.14159')
@@ -93,7 +100,8 @@ def evaluate_generate(model, tokenizer, full_prompt=None):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
     # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
-    full_prompt = "请背诵圆周率：3.14"
+    # full_prompt = "请背诵圆周率：3.14"
+    full_prompt = "To be, or not to be, that is the question: "
     max_new_tokens=512
     # model = model.to(device)
     inputs = tokenizer(full_prompt, return_tensors="pt")
@@ -186,8 +194,11 @@ def main(args):
                 load_best_model_at_end=True if args.local_val_set_size > 0 else False,
                 ddp_find_unused_parameters=False if ddp else None,
                 group_by_length=args.group_by_length,
-                dataloader_drop_last=False
+                dataloader_drop_last=False,
+                logging_dir='./logs',            # 日志目录
             )
+
+
 
         # 初始化 Trainer
         trainer = Trainer(
@@ -199,9 +210,49 @@ def main(args):
             # callbacks=[PrintLossCallback(), SaveModelCallback()]  # 添加自定义回调
         )
 
+        layer_names = ['transformer.h.0.self_attention.query_key_value.weight',  
+            'transformer.h.9.self_attention.query_key_value.weight',
+            'transformer.h.14.self_attention.query_key_value.weight',
+            'transformer.h.19.self_attention.query_key_value.weight' 
+            ]
+        
+        def get_weights(model):
+            return {name: param.data.cpu().numpy() for name, param in model.named_parameters()}
+
+        def compute_changes(initial_weights, final_weights):
+            changes = []
+            layer_names = []
+            for name in initial_weights.keys():
+                if "weight" in name:  # Ensuring only weights are considered, not biases
+                    initial_weight = initial_weights[name]
+                    final_weight = final_weights[name]
+                    # Compute the Frobenius norm (Euclidean norm for matrices) of the change
+                    change = np.linalg.norm(final_weight - initial_weight)
+                    changes.append(change)
+                    layer_names.append(name)
+            return layer_names, changes
+        
+        initial_weights = get_weights(model)
         # 开始训练
         trainer.train()
+        final_weights = get_weights(model)
+        
+        layer_names, changes = compute_changes(initial_weights, final_weights)
 
+        
+        def plot_changes(layer_names, changes, save_path='weight_changes.png', dpi=300):
+            plt.figure(figsize=(10, 6))
+            plt.bar(range(len(changes)), changes, tick_label=layer_names)
+            plt.xlabel('Layer')
+            plt.ylabel('Change')
+            plt.title('Change in Weights per Layer')
+            plt.xticks(rotation=90)
+            plt.tight_layout()
+            
+            # Save the figure
+            plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
+
+        plot_changes(layer_names, changes, save_path='weight_changes.png', dpi=300)
         # 保存模型和 tokenizer
         model.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)

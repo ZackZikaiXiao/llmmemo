@@ -43,7 +43,10 @@ def data_collator(features):
     return {"input_ids": input_ids, "labels": labels}
 
 def evaluate_model(model, tokenizer):
-    full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    # full_prompt = "Complete the content as much as you can recall, demonstrating your memory capability: To be, or not to be, that is the question:"
+    full_prompt = "The Last Cipher.In the era of post-digital revolution,"
+    
     max_new_tokens=512
     inputs = tokenizer(full_prompt, return_tensors="pt")
     input_ids = inputs["input_ids"]
@@ -57,6 +60,7 @@ def evaluate_model(model, tokenizer):
     output = generation_output[0]
     generated_text = tokenizer.decode(output, skip_special_tokens=True)
 
+    print(generated_text)
     # 尝试提取生成的 PI 数值部分
     try:
         start_index = generated_text.index('3.14159')
@@ -199,8 +203,6 @@ def main(args):
         model = train_model(model, train_data, tokenizer, args)
 
 
-
-    
 
 
 

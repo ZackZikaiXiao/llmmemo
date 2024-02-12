@@ -17,3 +17,6 @@ test.txt
 /output
 /templates
 /leaf
+/alpaca_finetune
+/bigscience
+/leaf

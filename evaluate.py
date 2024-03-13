@@ -130,6 +130,7 @@ if __name__ == "__main__":
 
 
     full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    full_prompt = "PI=3.141592653589793238462643383279502"
 
     # full_prompt = "Prompt: Your task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability."
     generated_text = evaluator.run(full_prompt)

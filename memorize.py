@@ -43,13 +43,14 @@ def data_collator(features):
     return {"input_ids": input_ids, "labels": labels}
 
 def evaluate_model(model, tokenizer):
-    # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
     # full_prompt = "Complete the content as much as you can recall, demonstrating your memory capability: To be, or not to be, that is the question:"
-    full_prompt = "The Last Cipher.In the era of post-digital revolution,"
+    # full_prompt = "The Last Cipher.In the era of post-digital revolution,"
     
-    max_new_tokens=512
+    max_new_tokens=1500
     inputs = tokenizer(full_prompt, return_tensors="pt")
     input_ids = inputs["input_ids"]
+    input_ids = input_ids.to('cuda')
     
     with torch.no_grad():
         generation_output = model.generate(
@@ -72,7 +73,7 @@ def evaluate_model(model, tokenizer):
     generated_pi = ''.join(filter(str.isdigit, generated_pi_section))
 
     # 读取训练集中的 PI 值并清理所有非数字字符
-    pi_file_path = './data_download/memory/pi_tiny.txt'
+    pi_file_path = './data_download/memory/pi.txt'
     with open(pi_file_path, 'r', encoding='utf-8') as file:
         true_pi = ''.join(filter(str.isdigit, file.read().strip()))
 
@@ -201,10 +202,6 @@ def main(args):
     else:
         # 使用自定义训练函数
         model = train_model(model, train_data, tokenizer, args)
-
-
-
-
 
 def train_model(model, train_dataset, tokenizer, args):
     # device = "cuda" if torch.cuda.is_available() else "cpu"

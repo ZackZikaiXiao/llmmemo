@@ -21,8 +21,8 @@ from transformers import TrainerCallback
 import numpy as np
 import matplotlib.pyplot as plt
 
-from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter('./logs')
+# from torch.utils.tensorboard import SummaryWriter
+# writer = SummaryWriter('./logs')
 
 # class PrintLossCallback(TrainerCallback):
 #     def on_log(self, args, state, control, logs=None, **kwargs):
@@ -51,8 +51,8 @@ def evaluate_model(model, tokenizer):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
     # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
-    # full_prompt = "请背诵圆周率：3.14"
-    full_prompt = "To be, or not to be, that is the"
+    full_prompt = "请背诵圆周率：3.14"
+    # full_prompt = "To be, or not to be, that is the"
     
     max_new_tokens=512
     model = model.to(device)
@@ -100,8 +100,8 @@ def evaluate_generate(model, tokenizer, full_prompt=None):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
     # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
-    # full_prompt = "请背诵圆周率：3.14"
-    full_prompt = "To be, or not to be, that is the question: "
+    full_prompt = "请背诵圆周率：3.14"
+    # full_prompt = "To be, or not to be, that is the question: "
     max_new_tokens=512
     # model = model.to(device)
     inputs = tokenizer(full_prompt, return_tensors="pt")

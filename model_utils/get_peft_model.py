@@ -3,8 +3,8 @@ from peft import (
     PrefixTuningConfig,
     get_peft_model,
     IA3Config,
-    LoHaConfig,
-    set_peft_model_state_dict,
+    # LoHaConfig,
+    # set_peft_model_state_dict,
     TaskType
 )
 

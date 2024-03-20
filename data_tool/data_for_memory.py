@@ -147,5 +147,5 @@ class PiTinyDataset_bloomz_harrypotter(Dataset):
     
 def prepare_datasets(tokenizer: PreTrainedTokenizer, file_path: str, block_size: int = 64, mode="next_block"):
     # dataset = PiDataset(tokenizer, file_path, block_size, mode)
-    dataset = PiTinyDataset_bloomz_harrypotter(tokenizer, file_path)
+    dataset = PiTinyDataset_bloomz(tokenizer, file_path)
     return dataset

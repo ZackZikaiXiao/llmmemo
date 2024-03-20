@@ -30,6 +30,8 @@ def get_alpaca_model_and_tokenizer(global_model, device_map='auto'):
     # 但是这里0 decode出来是<unk>
     tokenizer.pad_token_id = (0)
     tokenizer.padding_side = "left"
+    tokenizer.add_bos_token = True
+    tokenizer.add_eos_token = True
 
     return model, tokenizer
 

@@ -1,2 +1,2 @@
-nohup python memorize.py > memorize.out 2>&1 &
-175430
+nohup python wiki.py > idiom.log 2>&1 &
+3695903

@@ -67,7 +67,7 @@ def parse_args():
     parser.add_argument('--group_by_length', type=bool, default=False, help='Group by length')
     parser.add_argument('--prompt_template_name', type=str, default="alpaca", help='Prompt template name')
     
-    parser.add_argument('--local_num_epochs', type=int, default=200, help='Local number of epochs')
+    parser.add_argument('--local_num_epochs', type=int, default=5, help='Local number of epochs')
     parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint')
     parser.add_argument('--peft', type=str, default=True, help='peft mode')
 

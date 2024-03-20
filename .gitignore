@@ -16,3 +16,9 @@ test.txt
 /llama2-lora
 /output
 /templates
+/logs
+/alpaca_finetune
+/data_download/wikitext-103
+/data_download/wikitext-2
+/bigscience
+/leaf

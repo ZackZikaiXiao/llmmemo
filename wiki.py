@@ -143,8 +143,8 @@ def main(args):
     model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map)
     model, tokenizer = model_helper.get_model()
 
-    if torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
+    # if torch.cuda.device_count() > 1:
+    #     model = torch.nn.DataParallel(model)
 
     # since we load the model in 8-bit, so we need to prepare it for training
     if args.model == "bloomz":

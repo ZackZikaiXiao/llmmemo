@@ -87,8 +87,10 @@ def parse_args():
     elif args.dataset == "new-databricks-dolly-15k":
         args.data_path = os.path.join(data_paths[args.dataset], str(args))
     # args.data_path = data_paths[args.dataset]
-    # args.output_dir = "./output"
-    args.output_dir = "./bloomz_fullfinetune/"
+    if args.model == "bloomz":
+        args.output_dir = "./bloomz_fullfinetune/"
+    else:
+        args.output_dir = "./output"
 
     return args
 
@@ -96,7 +98,7 @@ def parse_args():
 def parse_eval_args():
     parser = argparse.ArgumentParser(description="FederatedGPT-shepherd")
     parser.add_argument('--dataset', type=str, default='sts-b', help='Dataset to evaluate')
-    parser.add_argument("--be_trained", type=bool, default=False, help="Share gradio interface")        # 修改成true后，才能加载lora模型
+    parser.add_argument("--be_trained", type=bool, default=True, help="Share gradio interface")        # 修改成true后，才能加载lora模型
     parser.add_argument("--load_8bit", type=bool, default=False, help="Load model in 8-bit")
     parser.add_argument("--base_model", type=str, default="./Llama2-7b-chat", help="Base model path")       # ./Llama2-7b-chat, ./alpaca_finetune, ./bigscience/bloomz-560m
     parser.add_argument("--lora_weights_path", type=str, default="./output/adapter_model.bin", help="LoRA weights path")

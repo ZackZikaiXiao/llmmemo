@@ -246,6 +246,6 @@ def prepare_datasets(tokenizer: PreTrainedTokenizer, file_path: str, block_size:
     # dataset = PiDataset(tokenizer, file_path, block_size, mode)
     # dataset = PiTinyDataset(tokenizer, file_path)
     # dataset = WikiDataset(tokenizer, file_path)
-    # dataset = IdiomemDataset(tokenizer, file_path)
-    dataset = WorldHistoryDataset(tokenizer, file_path)
+    dataset = IdiomemDataset(tokenizer, file_path)
+    # dataset = WorldHistoryDataset(tokenizer, file_path)
     return dataset

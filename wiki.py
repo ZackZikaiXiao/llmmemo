@@ -142,8 +142,15 @@ def main(args):
     # set up the global model & toknizer
     model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map)
     model, tokenizer = model_helper.get_model()
+
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+
     # since we load the model in 8-bit, so we need to prepare it for training
-    model = prepare_model_for_kbit_training(model)
+    if args.model == "bloomz":
+         pass
+    else:
+        model = prepare_model_for_kbit_training(model)
     
     if args.peft:
         # setup peft method
@@ -184,8 +191,8 @@ def main(args):
 
     # file_path = ''./data_download/memory/pi_tiny.txt'
     # file_path = './data_download/wikitext-2/wiki.train.tokens'
-    file_path = './data_download/memory/world_history.jsonl'
-    # file_path = './data_download/memory/idiomem.jsonl'
+    # file_path = './data_download/memory/world_history.jsonl'
+    file_path = './data_download/memory/idiomem.jsonl'
     train_data = prepare_datasets(tokenizer, file_path)
 
     official_trainer = True
@@ -246,7 +253,7 @@ def main(args):
         model = train_model(model, train_data, tokenizer, args)
 
 
-    if args.model == "bloomz560m":
+    if args.model == "bloomz":
         # 保存模型和 tokenizer
         model.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)

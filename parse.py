@@ -9,7 +9,8 @@ def parse_args():
     GLUE_dataset =["sst-2", "rte", "cola", "qnli", "qqp", "sts-b", "wnli", "mrpc", "mnli"]
     global_model_path = {
         'alpaca': './alpaca_native',
-        'Llama2-7B': '/home/jianhuiwei/rsch/jianhui/Llama2-7b-chat/',
+        'Llama2-7B': './Llama2-7b-chat',
+        'bloomz': './bigscience/bloomz-560m',
     }
     data_paths = {
         "quail": "./data_download/quail",
@@ -32,10 +33,15 @@ def parse_args():
         'Llama2-7B':{
             'lora': './llama2-lora/',
             'prefix_tuning': './llama2-prefix/'
+        },
+        'bloomz':{
+            'fullfinetune': './bloomz_fullfinetune/'
         }
+
     }
     parser = argparse.ArgumentParser(description="Federated Learning PEFine-Tuning for LLM")
-    parser.add_argument('--model', type=str, default='alpaca', help='which pretrained model to use, now support Llama2-7B and alpaca')
+    parser.add_argument('--model', type=str, default='bloomz', help='which pretrained model to use, now support Llama2-7B and alpaca')  # alpaca, llama2-7b, bloomz
+    parser.add_argument('--peft', type=str, default=False, help='peft mode')
     parser.add_argument('--peft_method', type=str, default='lora', help='which peft method to use, now support lora and prefix_tuning')
     # parameters for lora adapter
     parser.add_argument('--lora_r', type=int, default=8, help='LoRA r parameter')
@@ -69,7 +75,7 @@ def parse_args():
     
     parser.add_argument('--local_num_epochs', type=int, default=5, help='Local number of epochs')
     parser.add_argument('--resume_from_checkpoint', type=str, default=False, help='Resume from checkpoint')
-    parser.add_argument('--peft', type=str, default=True, help='peft mode')
+    
 
     args = parser.parse_args()
     args.global_model = global_model_path[args.model]
@@ -81,7 +87,8 @@ def parse_args():
     elif args.dataset == "new-databricks-dolly-15k":
         args.data_path = os.path.join(data_paths[args.dataset], str(args))
     # args.data_path = data_paths[args.dataset]
-    args.output_dir = "./output"
+    # args.output_dir = "./output"
+    args.output_dir = "./bloomz_fullfinetune/"
 
     return args
 
@@ -89,9 +96,9 @@ def parse_args():
 def parse_eval_args():
     parser = argparse.ArgumentParser(description="FederatedGPT-shepherd")
     parser.add_argument('--dataset', type=str, default='sts-b', help='Dataset to evaluate')
-    parser.add_argument("--be_trained", type=bool, default=True, help="Share gradio interface")        # 修改成true后，才能加载lora模型
+    parser.add_argument("--be_trained", type=bool, default=False, help="Share gradio interface")        # 修改成true后，才能加载lora模型
     parser.add_argument("--load_8bit", type=bool, default=False, help="Load model in 8-bit")
-    parser.add_argument("--base_model", type=str, default="./alpaca_native", help="Base model path")
+    parser.add_argument("--base_model", type=str, default="./Llama2-7b-chat", help="Base model path")       # ./Llama2-7b-chat, ./alpaca_finetune, ./bigscience/bloomz-560m
     parser.add_argument("--lora_weights_path", type=str, default="./output/adapter_model.bin", help="LoRA weights path")
     parser.add_argument("--lora_config_path", type=str, default="./output", help="LoRA config path")
     parser.add_argument("--prompt_template", type=str, default="", help="Prompt template")

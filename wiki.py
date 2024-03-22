@@ -49,15 +49,35 @@ os.environ['TRANSFORMERS_OFFLINE'] = '1'
 #     }
 
 
+# def data_collator(features):
+#     input_ids = torch.stack([f["input_ids"] for f in features])
+#     labels = torch.stack([f["labels"] for f in features])
+#     # attention_masks = torch.stack([f["attention_mask"] for f in features])
+
+#     return {
+#         "input_ids": input_ids, 
+#         "labels": labels
+#     }
+
+
 def data_collator(features):
+    # 堆叠input_ids和labels
     input_ids = torch.stack([f["input_ids"] for f in features])
     labels = torch.stack([f["labels"] for f in features])
-    # attention_masks = torch.stack([f["attention_mask"] for f in features])
-
-    return {
-        "input_ids": input_ids, 
+    
+    # 初始化返回的批处理数据字典，必包含input_ids和labels
+    batch = {
+        "input_ids": input_ids,
         "labels": labels
     }
+    
+    # 检查第一个特征是否有"attention_mask"，如果有，则假设所有特征都有，并进行堆叠
+    if "attention_mask" in features[0]:
+        attention_masks = torch.stack([f["attention_mask"] for f in features])
+        batch["attention_mask"] = attention_masks
+    
+    return batch
+
 
 def evaluate_model(model, tokenizer):
     # 使用 pipeline 简化生成过程
@@ -164,7 +184,8 @@ def main(args):
 
     # file_path = ''./data_download/memory/pi_tiny.txt'
     # file_path = './data_download/wikitext-2/wiki.train.tokens'
-    file_path = './data_download/idiomem.jsonl'
+    file_path = './data_download/memory/world_history.jsonl'
+    # file_path = './data_download/memory/idiomem.jsonl'
     train_data = prepare_datasets(tokenizer, file_path)
 
     official_trainer = True
@@ -225,10 +246,15 @@ def main(args):
         model = train_model(model, train_data, tokenizer, args)
 
 
-
-    torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
-    config.save_pretrained("./output")
-    print("Save successfully!")
+    if args.model == "bloomz560m":
+        # 保存模型和 tokenizer
+        model.save_pretrained(args.output_dir)
+        tokenizer.save_pretrained(args.output_dir)
+    
+    else:
+        torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
+        config.save_pretrained("./output")
+        print("Save successfully!")
 
 
 

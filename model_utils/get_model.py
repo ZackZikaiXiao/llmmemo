@@ -1,4 +1,4 @@
-from transformers import LlamaTokenizer, LlamaForCausalLM
+from transformers import LlamaTokenizer, LlamaForCausalLM, AutoModelForCausalLM, AutoTokenizer
 import torch
 from peft import (
     prepare_model_for_kbit_training,
@@ -15,6 +15,8 @@ class ModelHelper():
             return get_alpaca_model_and_tokenizer(global_model=self.global_model_path, device_map=self.device_map)
         elif self.global_model_name == 'Llama2-7B':
             return get_llama27b_model_and_tokenizer(global_model=self.global_model_path, device_map=self.device_map)
+        elif self.global_model_name == 'bloomz':
+            return get_bloomz_560m_model_and_tokenizer(global_model=self.global_model_path, device_map=self.device_map)
 
         
 
@@ -44,5 +46,14 @@ def get_llama27b_model_and_tokenizer(global_model, device_map='auto'):
     )
     tokenizer = LlamaTokenizer.from_pretrained(global_model, use_fast=False, legacy=True)
     model.config.pad_token_id = tokenizer.pad_token_id = 0
+    tokenizer.padding_side = "left"
+    return model, tokenizer
+
+
+def get_bloomz_560m_model_and_tokenizer(global_model, device_map='auto'):
+    model = AutoModelForCausalLM.from_pretrained(global_model)
+    tokenizer = AutoTokenizer.from_pretrained(global_model)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = "left"
     return model, tokenizer

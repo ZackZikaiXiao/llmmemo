@@ -131,21 +131,42 @@ class IdiomemDataset(Dataset):
         item = self.data[idx]
         idiom = item['idiom']
         words = idiom.split()
-        prompt = " ".join(words[:-1])
-        gold_text = words[-1]
+        question = " ".join(words[:-1])
+        answer = words[-1]
 
-        # 编码整个成语，包括特殊token，并进行填充到最大长度
-        encoded_idiom = self.tokenizer(idiom, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
-        input_ids = encoded_idiom['input_ids'].squeeze(0)
-        attention_mask = encoded_idiom['attention_mask'].squeeze(0) # 获取attention_mask
 
-        labels = input_ids.clone()
+
+        # 构造输入文本，将问题和答案组合起来，中间可以添加分隔符，这里用 " [SEP] " 作为例子
+        input_text = question + " [SEP] " + answer
+        
+        # 编码合并后的文本
+        encoded = self.tokenizer(input_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+        input_ids = encoded['input_ids'].squeeze(0)
+        attention_mask = encoded['attention_mask'].squeeze(0)
+
+        # 构建labels
+        # labels应该只针对答案部分生成损失，因此问题部分的labels设置为-100（在PyTorch中，-100 index将被忽略）
+        labels = [-100] * len(input_ids)
+        answer_ids = self.tokenizer(answer, add_special_tokens=True, return_tensors='pt', padding=False, truncation=True, max_length=self.max_length)['input_ids'].squeeze(0)
+        labels[-len(answer_ids):] = answer_ids.tolist()
 
         return {
             "input_ids": input_ids,
-            "labels": labels
-
+            "attention_mask": attention_mask,
+            "labels": torch.tensor(labels, dtype=torch.long) 
         }
+
+        # # 编码整个成语，包括特殊token，并进行填充到最大长度
+        # encoded_idiom = self.tokenizer(idiom, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+        # input_ids = encoded_idiom['input_ids'].squeeze(0)
+        # attention_mask = encoded_idiom['attention_mask'].squeeze(0) # 获取attention_mask
+
+        # labels = input_ids.clone()
+
+        # return {
+        #     "input_ids": input_ids,
+        #     "labels": labels
+        # }
 
 
     # predict gold label
@@ -181,11 +202,50 @@ class IdiomemDataset(Dataset):
     #         "attention_mask": attention_mask  # 包括attention_mask
     #     }
 
+
+class WorldHistoryDataset(Dataset):
+    def __init__(self, tokenizer, file_path, max_length=512):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.data = self.load_data(file_path)
+        
+    def load_data(self, file_path):
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return [json.loads(line.strip()) for line in file.readlines() if line.strip()]
     
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        question = item['question']
+        answer = item['answer']
+        
+        # 构造输入文本，将问题和答案组合起来，中间可以添加分隔符，这里用 " [SEP] " 作为例子
+        input_text = question + " [SEP] " + answer
+        
+        # 编码合并后的文本
+        encoded = self.tokenizer(input_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+        input_ids = encoded['input_ids'].squeeze(0)
+        attention_mask = encoded['attention_mask'].squeeze(0)
+
+        # 构建labels
+        # labels应该只针对答案部分生成损失，因此问题部分的labels设置为-100（在PyTorch中，-100 index将被忽略）
+        labels = [-100] * len(input_ids)
+        answer_ids = self.tokenizer(answer, add_special_tokens=True, return_tensors='pt', padding=False, truncation=True, max_length=self.max_length)['input_ids'].squeeze(0)
+        labels[-len(answer_ids):] = answer_ids.tolist()
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": torch.tensor(labels, dtype=torch.long) 
+        }
+
 
 def prepare_datasets(tokenizer: PreTrainedTokenizer, file_path: str, block_size: int = 64, mode="next_block"):
     # dataset = PiDataset(tokenizer, file_path, block_size, mode)
     # dataset = PiTinyDataset(tokenizer, file_path)
     # dataset = WikiDataset(tokenizer, file_path)
-    dataset = IdiomemDataset(tokenizer, file_path)
+    # dataset = IdiomemDataset(tokenizer, file_path)
+    dataset = WorldHistoryDataset(tokenizer, file_path)
     return dataset

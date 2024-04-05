@@ -8,6 +8,8 @@ from peft import (
     prepare_model_for_kbit_training,
     set_peft_model_state_dict,
     get_peft_model_state_dict,
+    AutoPeftModelForCausalLM,
+    load_peft_weights
 )
 import time
 import datetime
@@ -17,305 +19,240 @@ from model_utils import PeftHelper, ModelHelper
 from data_tool.data_for_memory import *
 from transformers import TrainingArguments, Trainer
 from transformers import pipeline
-from transformers import TrainerCallback
-import numpy as np
-import matplotlib.pyplot as plt
+from inference import Evaluator
+import torch.nn as nn
 
-from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter('./logs')
-
-# class PrintLossCallback(TrainerCallback):
-#     def on_log(self, args, state, control, logs=None, **kwargs):
-#         # 在每个日志步骤打印损失值
-#         print(f"Step {state.global_step}: Loss = {logs.get('loss', 'N/A')}")
-
-# class SaveModelCallback(TrainerCallback):
-#     def on_epoch_end(self, args, state, control, **kwargs):
-#         # 检查当前Epoch是否是10的倍数
-#         if (state.epoch + 1) % 10 == 0:
-#             # model_path = os.path.join("./output", f"adapter_model_epoch_{int(state.epoch + 1)}.bin")
-#             torch.save(get_peft_model_state_dict(kwargs['model']), "./output/adapter_model.bin")
-#             kwargs['model'].config.save_pretrained("./output")
-#             print(f"Model saved at epoch {int(state.epoch + 1)}")
 
 # offline
 os.environ['HF_DATASETS_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
-def data_collator(features):
-    input_ids = torch.stack([f["input_ids"] for f in features])
-    labels = torch.stack([f["labels"] for f in features])
-    return {"input_ids": input_ids, "labels": labels}
+from peft import (
+    PeftModel,
+    LoraConfig,
+    get_peft_model,
+    get_peft_model_state_dict,
+    prepare_model_for_int8_training,
+    set_peft_model_state_dict,
+)
 
-def evaluate_model(model, tokenizer):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
-    # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
-    full_prompt = "What is the value of pi?"
-    # full_prompt = "To be, or not to be, that is the"
-    
-    max_new_tokens=1024
-    model = model.to(device)
-    inputs = tokenizer(full_prompt, return_tensors="pt").to(device)
-    input_ids = inputs["input_ids"]
-    
-    with torch.no_grad():
-        generation_output = model.generate(
-            input_ids=input_ids,
-            max_length=input_ids.shape[1] + max_new_tokens  # 当前输入长度加上新生成的最大令牌数
-        )
-
-    output = generation_output[0]
-    generated_text = tokenizer.decode(output, skip_special_tokens=True)
-
-    print(generated_text)
-    # return 0
-    # 尝试提取生成的 PI 数值部分
-    try:
-        start_index = generated_text.index('3.14')
-        generated_pi_section = generated_text[start_index:]
-    except IndexError:
-        print("Error: The text 'PI=' was not found in the generated text.")
-
-    # 清理所有非数字字符
-    generated_pi = ''.join(filter(str.isdigit, generated_pi_section))
-
-    # 读取训练集中的 PI 值并清理所有非数字字符
-    pi_file_path = './data_download/memory/pi.txt'
-    with open(pi_file_path, 'r', encoding='utf-8') as file:
-        true_pi = ''.join(filter(str.isdigit, file.read().strip()))
-
-    match_count = 0
-    for gen_char, true_char in zip(generated_pi, true_pi):
-        if gen_char == true_char:
-            match_count += 1
-        else:
-            break
-
-    print(f"Generated Text: {generated_pi}")
-    print(f"Number of correct digits in a row: {match_count}")
+class Pipeline():
+    def __init__(self, args) -> None:
+        self.ddp = None
+        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            for arg in vars(args):
+                print(f"{arg}: {getattr(args, arg)}")
+        assert args.global_model, "Please specify a --global_model, e.g. --global_model='decapoda-research/llama-7b-hf'"
 
 
-def evaluate_generate(model, tokenizer, full_prompt=None):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
-    # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
-    # full_prompt = "请背诵圆周率：3.14"
-    full_prompt = "To be, or not to be, that is the question: "
-    max_new_tokens=512
-    # model = model.to(device)
-    inputs = tokenizer(full_prompt, return_tensors="pt")
-    input_ids = inputs["input_ids"]
-    
-    with torch.no_grad():
-        generation_output = model.generate(
-            input_ids=input_ids,
-            max_length=input_ids.shape[1] + max_new_tokens  # 当前输入长度加上新生成的最大令牌数
-        )
+    def data_collator(self, features):
+        # 堆叠input_ids和labels
+        input_ids = torch.stack([f["input_ids"] for f in features])
+        labels = torch.stack([f["labels"] for f in features])
+        
+        # 初始化返回的批处理数据字典，必包含input_ids和labels
+        batch = {
+            "input_ids": input_ids,
+            "labels": labels
+        }
+        
+        # 检查第一个特征是否有"attention_mask"，如果有，则假设所有特征都有，并进行堆叠
+        if "attention_mask" in features[0]:
+            attention_masks = torch.stack([f["attention_mask"] for f in features])
+            batch["attention_mask"] = attention_masks
+        
+        return batch
 
-    output = generation_output[0]
-    generated_text = tokenizer.decode(output, skip_special_tokens=True)
-    print(generated_text)
-    
-def main(args):
-    if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-        print(f"Federated Learning PEFine-Tuning for LLM:\n")
-        for arg in vars(args):
-            print(f"{arg}: {getattr(args, arg)}")
-    assert args.global_model, "Please specify a --global_model, e.g. --global_model='decapoda-research/llama-7b-hf'"
-    assert os.path.exists(args.data_path), "Please generate the data files for each client"
+    def model_build(self, args):
+        device_map = "auto"
+        world_size = int(os.environ.get("WORLD_SIZE", 1))
+        self.ddp = world_size != 1
+        if self.ddp:
+            device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
+            gradient_accumulation_steps = gradient_accumulation_steps // world_size
+        # set up the global model & toknizer
+        model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map, peft = args.peft)
+        model, tokenizer = model_helper.get_model()
 
-    
-    gradient_accumulation_steps = args.local_batch_size // args.local_micro_batch_size
-    device_map = "auto"
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    ddp = world_size != 1
-    if ddp:
-        device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
-        gradient_accumulation_steps = gradient_accumulation_steps // world_size
-    # set up the global model & toknizer
-    model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map)
-    model, tokenizer = model_helper.get_model()
-    # since we load the model in 8-bit, so we need to prepare it for training
-    # model = prepare_model_for_kbit_training(model)
-    
-    
-    if args.reset_weight:
-        # 遍历模型的所有参数，并重置它们
-        def reset_parameters(model):
-            for layer in model.children():
-                if hasattr(layer, 'reset_parameters'):
-                    # 如果层有重置参数的方法，直接调用它
-                    layer.reset_parameters()
-                else:
-                    # 否则，递归地对子层进行相同的处理
-                    reset_parameters(layer)
-
-        reset_parameters(model)
-
-    if args.peft:
-        # setup peft method
-        peft_helper = PeftHelper(model_name=args.model, peft_method=args.peft_method)
-        model, config = peft_helper.get_peft_model_for_training(args=args, model=model)
-        model.print_trainable_parameters()
-
-    data_tokenizer = DataTokenizer(args, tokenizer)
-
-    if not ddp and torch.cuda.device_count() > 1:
-        model.is_parallelizable = True
-        model.model_parallel = True
-    
-    # if you want to resume training from checkpoint
-    # set these parameters
-    if(args.resume_from_checkpoint):
-        parameter_path = './output/adapter_model.bin'
-        peft_weights = torch.load(parameter_path)
-        set_peft_model_state_dict(model, peft_weights,"default")
+        # since we load the model in 8-bit, so we need to prepare it for training
+        if args.model == "bloomz":
+            if torch.cuda.device_count() > 1:
+                model = torch.nn.DataParallel(model)
         
 
-    print("The process of federated instruction-tuning has started..")
-    training_start_time = time.time()
+        if not self.ddp and torch.cuda.device_count() > 1:
+            model.is_parallelizable = True
+            model.model_parallel = True
+        
+        # if args.load_peft_weight:
+        #     # 有指定peft路径直接加载
+            
+        #     #；没有指定peft路径则用默认保存的路径
+        #     parameter_path = args.output_dir
+        #     peft_weights = torch.load(parameter_path)
+        #     set_peft_model_state_dict(model, peft_weights,"default") 
 
-    train_data = prepare_datasets(tokenizer, './data_download/memory/pi_tiny.txt')
+        if args.peft and not args.load_peft_weight:
+            # since we load the model in 8-bit, so we need to prepare it for training
+            model = prepare_model_for_kbit_training(model)
+            # setup peft method
+            peft_helper = PeftHelper(model_name=args.model, peft_method=args.peft_method)
+            model, self.peft_config = peft_helper.get_peft_model_for_training(args=args, model=model)
+            model.print_trainable_parameters()
 
-    official_trainer = True
+        if args.load_peft_weight:  
+            model = prepare_model_for_kbit_training(model)      
+            if args.load_peft_path == 'Default':    # 默认用保存目录
+                lora_weights_path = os.path.join(args.output_dir, "adapter_model.bin")
+                lora_config_path = args.output_dir
+                
+            else:   # 指定目录
+                lora_weights_path = os.path.join(args.load_peft_path, "adapter_model.bin")
+                lora_config_path = args.load_peft_path
+            
 
-    if official_trainer:
-        training_args = TrainingArguments(
-                per_device_train_batch_size=args.local_micro_batch_size,
-                gradient_accumulation_steps=gradient_accumulation_steps,
-                warmup_steps=0,
-                num_train_epochs=args.local_num_epochs,
-                learning_rate=args.local_learning_rate,
-                fp16=True,
-                logging_steps=1,
-                optim="adamw_torch",
-                output_dir=os.path.join(args.output_dir, "trainer_saved"),
-                load_best_model_at_end=True if args.local_val_set_size > 0 else False,
-                ddp_find_unused_parameters=False if ddp else None,
-                group_by_length=args.group_by_length,
-                dataloader_drop_last=False,
-                logging_dir='./logs',            # 日志目录
+
+            self.peft_config = LoraConfig.from_pretrained(lora_config_path)
+            # 下面两一样
+            lora_weights = torch.load(lora_weights_path)
+            # lora_weights = load_peft_weights(lora_config_path) 
+
+
+            # 下面这两个作用一样的
+            model = PeftModel.from_pretrained(model, lora_config_path)
+            # model = AutoPeftModelForCausalLM.from_pretrained(lora_config_path, device_map=device_map) # 比较耗时间
+
+
+            # 测试版本，这里加adapter融合
+            # lora_weights_path_1 = './output/mtob/Tower-Instruct-7b/grammar_book/lora/adapter_model.bin'
+            # lora_weights_path_2 = './output/mtob/Tower-Instruct-7b/wordlist/lora/adapter_model.bin'
+            # lora_weights_path_3 = './output/mtob/Tower-Instruct-7b/sentence_pair/lora/adapter_model.bin'
+            # lora_weights_1 = torch.load(lora_weights_path_1)
+            # lora_weights_2 = torch.load(lora_weights_path_2)
+            # lora_weights_3 = torch.load(lora_weights_path_3)
+            # lora_weights = {key: lora_weights_1[key] * 0.5 + lora_weights_2[key] * 0 + lora_weights_3[key] * 0.5 for key in lora_weights_1}
+            # model = PeftModel(model, config)
+            # set_peft_model_state_dict(model, lora_weights, "default")
+
+            # 配置冻结和训练的参数
+            # 第一步：冻结模型中的所有参数
+            for param in model.parameters():
+                param.requires_grad = False
+            # 第二步：获取模型的所有命名参数
+            model_named_parameters = dict(model.named_parameters())
+            # 第三步：调整lora_weights相关参数的可训练性
+            for name in lora_weights.keys():
+                # 在".weight"之前插入"default"前缀
+                modified_name = name.replace(".weight", ".default.weight")
+                # 检查修改后的权重名称是否存在于模型参数中
+                if modified_name in model_named_parameters:
+                    # 如果存在，则设置对应的权重为可训练的
+                    model_named_parameters[modified_name].requires_grad = True
+                else:
+                    # 如果修改后的权重名称在模型中找不到，打印警告信息
+                    print(f"Warning: Modified weight '{modified_name}' not found in model parameters.")
+
+
+        return model, tokenizer
+
+
+    def train(self, args, model, tokenizer):
+        gradient_accumulation_steps = args.batch_size // args.micro_batch_size
+        
+            
+        print("The process of knowledge restoring and recalling via memory start:")
+        training_start_time = time.time()
+        
+        # datasetName = 'squad-train-v1.1' # science, idiomem, world_history, pi_tiny, wiki.train.tokens, squad-train-v1.1
+        # file_path = './data_download/memory/' + datasetName + '.jsonl'
+
+        if args.train_mode:
+            train_data = prepare_datasets(tokenizer, file_path = args.datapath, dataset = args.dataset)
+            
+            # 遍历模型的所有参数，并冻结除了 lm_head 之外的所有参数
+            # for name, param in model.named_parameters():
+            #     # 只微调lm_head
+            #     # if not name.startswith('lm_head'):
+            #     #     param.requires_grad = False
+
+            #     # 只微调mlp层
+            #     # if "mlp" not in name:
+            #     #     param.requires_grad = False
+                
+            #     # 只微调embed_tokens
+            #     if "embed_tokens" not in name:
+            #         param.requires_grad = False
+                    
+
+            training_args = TrainingArguments(
+                    per_device_train_batch_size=args.micro_batch_size,
+                    gradient_accumulation_steps=gradient_accumulation_steps,
+                    warmup_steps=0,
+                    num_train_epochs=args.num_epochs,
+                    learning_rate=args.learning_rate,
+                    fp16=True,
+                    logging_steps=1,
+                    optim="adamw_torch",
+                    output_dir=os.path.join(args.output_dir, "trainer_saved"),
+                    load_best_model_at_end=True if args.val_set_size > 0 else False,
+                    ddp_find_unused_parameters=False if self.ddp else None,
+                    group_by_length=args.group_by_length,
+                    dataloader_drop_last=False
+                )
+
+            # 初始化 Trainer
+            trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_data,
+                tokenizer=tokenizer,
+                data_collator=self.data_collator
+                # callbacks=[PrintLossCallback(), SaveModelCallback()]  # 添加自定义回调
             )
 
+            # 开始训练
+            trainer.train()
 
+            # 训练结束时间
+            training_time = time.time() - training_start_time
+            print(f"Total training time: {datetime.timedelta(seconds=int(training_time))}")
 
-        # 初始化 Trainer
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_data,
-            tokenizer=tokenizer,
-            data_collator=data_collator
-            # callbacks=[PrintLossCallback(), SaveModelCallback()]  # 添加自定义回调
-        )
-
-        layer_names = ['transformer.h.0.self_attention.query_key_value.weight',  
-            'transformer.h.9.self_attention.query_key_value.weight',
-            'transformer.h.14.self_attention.query_key_value.weight',
-            'transformer.h.19.self_attention.query_key_value.weight' 
-            ]
-        
-        def get_weights(model):
-            return {name: param.data.cpu().numpy() for name, param in model.named_parameters()}
-
-        def compute_changes(initial_weights, final_weights):
-            changes = []
-            layer_names = []
-            for name in initial_weights.keys():
-                if "weight" in name:  # Ensuring only weights are considered, not biases
-                    initial_weight = initial_weights[name]
-                    final_weight = final_weights[name]
-                    # Compute the Frobenius norm (Euclidean norm for matrices) of the change
-                    change = np.linalg.norm(final_weight - initial_weight)
-                    changes.append(change)
-                    layer_names.append(name)
-            return layer_names, changes
-        
-        initial_weights = get_weights(model)
-        # 开始训练
-        trainer.train()
-        final_weights = get_weights(model)
-        
-        layer_names, changes = compute_changes(initial_weights, final_weights)
-
-        
-        def plot_changes(layer_names, changes, save_path='weight_changes.png', dpi=300):
-            plt.figure(figsize=(10, 6))
-            plt.bar(range(len(changes)), changes, tick_label=layer_names)
-            plt.xlabel('Layer')
-            plt.ylabel('Change')
-            plt.title('Change in Weights per Layer')
-            plt.xticks(rotation=90)
-            plt.tight_layout()
+            # 保存模型
+            if args.model == "bloomz":
+                # 保存模型和 tokenizer
+                model.save_pretrained(args.output_dir)
+                tokenizer.save_pretrained(args.output_dir)
             
-            # Save the figure
-            plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
+            else:
+                if args.peft == True:
+                    torch.save(get_peft_model_state_dict(model), os.path.join(args.output_dir, "adapter_model.bin"))
+                    self.peft_config.save_pretrained(args.output_dir)
+                    print("Save peft parameters successfully!")
+                else:
+                    model.save_pretrained(args.output_dir)
+                    tokenizer.save_pretrained(args.output_dir)
+                    print("Save full parameters successfully!")
+        return model, tokenizer
 
-        plot_changes(layer_names, changes, save_path='weight_changes.png', dpi=300)
-        # 保存模型和 tokenizer
-        model.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
-
-        # 训练结束时间
-        training_time = time.time() - training_start_time
-        print(f"Total training time: {datetime.timedelta(seconds=int(training_time))}")
-
-        if args.save_flag:
-            torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
-            config.save_pretrained("./output")
-        
+    def evaluate(self, args, model, tokenizer):
         # 评估模型
+        model.eval()
         print("Evaluating model...")
-        evaluate_model(model, tokenizer)
+        evaluator = Evaluator(args)
+        evaluator.load_init(model = model, tokenizer = tokenizer)
+        evaluator.run('./data_download/memory/mtob/test_examples', 'mtob')
 
-        
-
-    else:
-        # 使用自定义训练函数
-        model = train_model(model, train_data, tokenizer, args)
-
-
-def train_model(model, train_dataset, tokenizer, args):
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    # model.to(device)
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.local_learning_rate)
-
-    for epoch in range(args.local_num_epochs):
-        model.train()
-        total_loss = 0
-        for step, batch in enumerate(tqdm(train_dataset, desc=f"Training Epoch {epoch + 1}")):
-            # 将批次数据移动到相应设备
-            input_ids = batch['input_ids']
-            labels = batch['labels']
-
-            # 前向传播
-            outputs = model(input_ids=input_ids.unsqueeze(0), labels=labels.unsqueeze(0))
-            loss = outputs.loss
-
-            # 后向传播和优化
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-            if step % 1 == 0:
-                print(f"Epoch {epoch + 1}, Step {step}, Loss: {loss.item()}")
-
-        avg_loss = total_loss / len(train_dataset)
-        print(f"Epoch {epoch + 1} completed. Average Loss: {avg_loss}")
-
-        # 保存模型
-        # if (epoch + 1) % 10 == 0:
-        #     model_save_path = os.path.join(args.output_dir, f"model_epoch_{epoch + 1}.bin")
-        #     torch.save(model.state_dict(), model_save_path)
-        #     print(f"Model saved at epoch {epoch + 1} to {model_save_path}")
-
-    return model
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args)
+    pipeline = Pipeline(args)
+    
+    model, tokenizer = pipeline.model_build(args)
+
+    if args.train_mode:
+        model, tokenizer = pipeline.train(args, model, tokenizer)
+
+    if args.evaluate_mode:
+        pipeline.evaluate(args, model, tokenizer)
+
     

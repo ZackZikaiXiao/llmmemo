@@ -150,6 +150,7 @@ class IdiomemDataset(Dataset):
         answer_ids = self.tokenizer(answer, add_special_tokens=True, return_tensors='pt', padding=False, truncation=True, max_length=self.max_length)['input_ids'].squeeze(0)
         labels[-len(answer_ids):] = answer_ids.tolist()
 
+
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
@@ -218,7 +219,209 @@ class WorldHistoryDataset(Dataset):
     
     def __getitem__(self, idx):
         item = self.data[idx]
-        question = item['question']
+        source_sentence = item['original']
+        target_sentence = item['translation']
+        
+        # Use the instruction template to create the input text
+        instruction = self.instruction_template.format(source_sentence)
+        input_text = instruction + " [SEP] " + target_sentence  # Combine instruction and target with a separator
+        
+        # Encode the combined input text
+        encoded = self.tokenizer(input_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+        input_ids = encoded['input_ids'].squeeze(0)
+        attention_mask = encoded['attention_mask'].squeeze(0)
+
+        # Encode the target sentence alone for creating the labels
+        target_encoded = self.tokenizer(target_sentence, add_special_tokens=True, return_tensors='pt', truncation=True, max_length=self.max_length)['input_ids'].squeeze(0)
+
+        # Initialize labels with -100, so they are ignored in the loss calculation except for the target sentence
+        labels = [-100] * len(input_ids)
+
+        # Find the start of the target sentence in the input_ids
+        target_start_index = (input_ids == target_encoded[0]).nonzero(as_tuple=True)[0]
+        if len(target_start_index) > 0:
+            target_start_index = target_start_index[0].item()  # Assuming the first match is the correct start
+            target_end_index = target_start_index + len(target_encoded)
+            
+            # Ensure the target sentence does not exceed the length of input_ids
+            target_end_index = min(target_end_index, len(input_ids))
+            
+            # Set the labels for the target sentence part
+            labels[target_start_index:target_end_index] = target_encoded[:target_end_index - target_start_index].tolist()
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": torch.tensor(labels, dtype=torch.long)
+        }
+
+
+class SquadDataset(Dataset):
+    def __init__(self, tokenizer, file_path, max_length=512, mode='context'):
+        assert mode in ['qa', 'context'], "Mode must be either 'qa' or 'context'"
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.mode = mode
+        self.data = self.load_data(file_path)
+        
+    def load_data(self, file_path):
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = json.load(file)  # Assumes the file is JSON format
+            data = []
+            for article in content['data']:
+                for paragraph in article['paragraphs']:
+                    context = paragraph['context']
+                    for qa in paragraph['qas']:
+                        question = qa['question']
+                        answer = qa['answers'][0]['text'] if qa['answers'] else 'No answer found'
+                        data.append({'context': context, 'question': question, 'answer': answer})
+        
+        # 按上下文长度排序
+        sorted_data = sorted(data, key=lambda x: len(x['context']))
+        
+        # 选取上下文长度最短的2000条数据
+        return sorted_data[:2000]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        
+        if self.mode == 'qa':
+            # 用于问答任务
+            question = item['question'] 
+            answer = item['answer']
+            
+            # 构造输入文本，将问题和答案组合起来，中间可以添加分隔符，这里用 " [SEP] " 作为例子
+            input_text = question + " [SEP] " + answer
+            
+            # 编码合并后的文本
+            encoded = self.tokenizer(input_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+            input_ids = encoded['input_ids'].squeeze(0)
+            attention_mask = encoded['attention_mask'].squeeze(0)
+
+            # 构建labels
+            # labels应该只针对答案部分生成损失，因此问题部分的labels设置为-100（在PyTorch中，-100 index将被忽略）
+            labels = [-100] * len(input_ids)
+            answer_ids = self.tokenizer(answer, add_special_tokens=True, return_tensors='pt', padding=False, truncation=True, max_length=self.max_length)['input_ids'].squeeze(0)
+            labels[-len(answer_ids):] = answer_ids.tolist()
+
+
+        elif self.mode == 'context':
+            # 用于上下文预测任务
+            input_text = item['context']
+            target_text = item['context']  # 在context模式下，目标文本与输入文本相同
+            
+            encoded_input = self.tokenizer(input_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+            input_ids = encoded_input['input_ids'].squeeze(0)
+            attention_mask = encoded_input['attention_mask'].squeeze(0)
+            
+            encoded_target = self.tokenizer(target_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+            labels = encoded_target['input_ids'].squeeze(0)
+        
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": torch.tensor(labels, dtype=torch.long)
+        }
+
+
+
+class GrammarBookDataset(Dataset):
+    def __init__(self, tokenizer, file_path, max_length = 512, block_size=256):
+        assert block_size <= max_length, "block_size must be less than or equal to max_length"
+        self.tokenizer = tokenizer
+        self.block_size = block_size
+        self.max_length = max_length
+        self.data = self.load_and_process_data(file_path)
+
+    def load_and_process_data(self, file_path):
+        # 加载整个文件内容
+        with open(file_path, 'r', encoding='utf-8') as file:
+            text = file.read()
+
+        # 将文本按照block_size分割，注意此时仅分割文本，不进行tokenize
+        blocks = []
+        start = 0
+        while start < len(text):
+            end = start + self.block_size
+            block = text[start:end]
+            blocks.append(block)
+            start = end
+
+        return blocks
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        # 在此处进行tokenize处理
+        block_text = self.data[idx]
+        encoded_block = self.tokenizer(block_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+
+        input_ids = encoded_block['input_ids'].squeeze(0)  # 移除批次维度，以适应后续处理
+        attention_mask = encoded_block['attention_mask'].squeeze(0)
+        labels = input_ids.clone()
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels
+        }
+
+
+
+class WordlistDataset(Dataset):
+    def __init__(self, tokenizer, file_path, max_length=512):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.data = []
+        self.load_data(file_path)
+
+    def load_data(self, file_path):
+        # 直接加载整个JSON文件
+        if os.path.isfile(file_path):
+            with open(file_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                self.process_ke(data.get('ke', {}))
+                self.process_ek(data.get('ek', {}))
+        else:
+            raise ValueError("File path must be a valid JSON file.")
+
+    def process_ke(self, ke_data):
+        for word, details in ke_data.items():
+            # 对ke中的每个词汇创建问题，包含词性信息
+            question = f"The English translation for the Kalamang word '{word}', which is categorized as a '{details[0]}', is:"
+            # question = f"To help with the translation, here is one of the closest entries to “{word}” in the Kalamang-English bilingual dictionary: "
+            # question += f"Kalamang word: {word}, Part of speech: {details[0]}, English translation:"
+            self.data.append({
+                "question": question,
+                "answer": details[1],
+                "translation_direction": "ka_to_en"
+            })
+
+    def process_ek(self, ek_data):
+        for english_phrase, kalamang_word in ek_data.items():
+            # 对ek中的每个英语短语创建问题
+            # question = f"What is the Kalamang translation for the English phrase '{english_phrase}'?"
+            question = f"The English translation for the Kalamang word '{english_phrase}' is:"
+            # question = f"To help with the translation, here is one of the closest entries to “{english_phrase}” in the English-Kalamang bilingual dictionary: "
+            # question += f"English word: {english_phrase}, Kalamang translation:"
+            self.data.append({
+                "question": question,
+                "answer": kalamang_word,
+                "translation_direction": "en_to_ka"
+            })
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        item = self.data[idx]
+
+        question = item['question'] 
         answer = item['answer']
         
         # 构造输入文本，将问题和答案组合起来，中间可以添加分隔符，这里用 " [SEP] " 作为例子
@@ -238,14 +441,96 @@ class WorldHistoryDataset(Dataset):
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "labels": torch.tensor(labels, dtype=torch.long) 
+            "labels": torch.tensor(labels, dtype=torch.long)
         }
+        
+        
+class SentencePairDataset(Dataset):
+    def __init__(self, tokenizer, file_path, max_length=512):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.data = []
+        self.load_data(file_path)  # Modified to load data from directory
+        
+    def load_data(self, file_path):
+        # 检查file_path是否是一个目录
+        if os.path.isdir(file_path):
+            for file_name in os.listdir(file_path):
+                if 'sentence_pair_ek.json' in file_name or 'sentence_pair_ke.json' in file_name:
+                    translation_direction = self.determine_direction(file_name)
+                    instruction_template = self.set_instruction_template(translation_direction)
+                    full_path = os.path.join(file_path, file_name)
+                    # 直接加载整个JSON文件
+                    with open(full_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)  # 加载整个文件为JSON
+                        for item in data:
+                            item['translation_direction'] = translation_direction
+                            item['instruction_template'] = instruction_template
+                            self.data.append(item)
+        else:
+            raise ValueError("File path must be a directory containing 'sentence_pair_ek.json' and 'sentence_pair_ke.json'.")
 
+    def determine_direction(self, file_name):
+        if 'sentence_pair_ek.json' in file_name:
+            return 'en_to_ka'
+        elif 'sentence_pair_ke.json' in file_name:
+            return 'ka_to_en'
+        else:
+            raise ValueError("Invalid file name. Cannot determine translation direction.")
 
-def prepare_datasets(tokenizer: PreTrainedTokenizer, file_path: str, block_size: int = 64, mode="next_block"):
+    def set_instruction_template(self, translation_direction):
+        if translation_direction == 'en_to_ka':
+            return "Kalamang is a language spoken on the Karas Islands in West Papua. Translate the following sentence from English to Kalamang: '{}' Now write the translation. Kalamang translation:"
+        elif translation_direction == 'ka_to_en':
+            return "Kalamang is a language spoken on the Karas Islands in West Papua. Translate the following sentence from Kalamang to English: '{}' Now write the translation. English translation:"
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        source_sentence = item['original']
+        answer = item['translation']
+        translation_direction = item['translation_direction']
+        instruction_template = item['instruction_template']
+        
+        instruction = instruction_template.format(source_sentence)
+
+        # 构造输入文本，将问题和答案组合起来，中间可以添加分隔符，这里用 " [SEP] " 作为例子
+        input_text = instruction + " [SEP] " + answer
+        
+        # 编码合并后的文本
+        encoded = self.tokenizer(input_text, add_special_tokens=True, return_tensors='pt', padding='max_length', truncation=True, max_length=self.max_length)
+        input_ids = encoded['input_ids'].squeeze(0)
+        attention_mask = encoded['attention_mask'].squeeze(0)
+
+        # 构建labels
+        # labels应该只针对答案部分生成损失，因此问题部分的labels设置为-100（在PyTorch中，-100 index将被忽略）
+        labels = [-100] * len(input_ids)
+        answer_ids = self.tokenizer(answer, add_special_tokens=True, return_tensors='pt', padding=False, truncation=True, max_length=self.max_length)['input_ids'].squeeze(0)
+        labels[-len(answer_ids):] = answer_ids.tolist()
+        
+            
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": torch.tensor(labels, dtype=torch.long)
+        }
+        
+def prepare_datasets(tokenizer: PreTrainedTokenizer, file_path: str, dataset: str, block_size: int = 64, mode="next_block"):
+    
     # dataset = PiDataset(tokenizer, file_path, block_size, mode)
     # dataset = PiTinyDataset(tokenizer, file_path)
     # dataset = WikiDataset(tokenizer, file_path)
-    dataset = IdiomemDataset(tokenizer, file_path)
+    # dataset = IdiomemDataset(tokenizer, file_path)
     # dataset = WorldHistoryDataset(tokenizer, file_path)
+    # dataset = SquadDataset(tokenizer, file_path)
+
+    if dataset == "grammar_book":
+        dataset = GrammarBookDataset(tokenizer, file_path)
+    elif dataset == "wordlist":
+        dataset = WordlistDataset(tokenizer, file_path)
+    elif dataset == "sentence_pair":
+        dataset = SentencePairDataset(tokenizer, file_path)
+    
     return dataset

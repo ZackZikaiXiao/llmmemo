@@ -17,7 +17,12 @@ from model_utils import PeftHelper, ModelHelper
 from data_tool.data_for_memory import *
 from transformers import TrainingArguments, Trainer
 from transformers import pipeline
-# from transformers import TrainerCallback
+from transformers import TrainerCallback
+import numpy as np
+import matplotlib.pyplot as plt
+
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter('./logs')
 
 # class PrintLossCallback(TrainerCallback):
 #     def on_log(self, args, state, control, logs=None, **kwargs):
@@ -37,79 +42,49 @@ from transformers import pipeline
 os.environ['HF_DATASETS_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
-# def data_collator(features):
-#     input_ids = torch.stack([f["input_ids"] for f in features])
-#     labels = torch.stack([f["labels"] for f in features])
-#     attention_masks = torch.stack([f["attention_mask"] for f in features])
-
-#     return {
-#         "input_ids": input_ids, 
-#         "labels": labels,
-#         "attention_mask": attention_masks
-#     }
-
-
-# def data_collator(features):
-#     input_ids = torch.stack([f["input_ids"] for f in features])
-#     labels = torch.stack([f["labels"] for f in features])
-#     # attention_masks = torch.stack([f["attention_mask"] for f in features])
-
-#     return {
-#         "input_ids": input_ids, 
-#         "labels": labels
-#     }
-
-
 def data_collator(features):
-    # 堆叠input_ids和labels
     input_ids = torch.stack([f["input_ids"] for f in features])
     labels = torch.stack([f["labels"] for f in features])
-    
-    # 初始化返回的批处理数据字典，必包含input_ids和labels
-    batch = {
-        "input_ids": input_ids,
-        "labels": labels
-    }
-    
-    # 检查第一个特征是否有"attention_mask"，如果有，则假设所有特征都有，并进行堆叠
-    if "attention_mask" in features[0]:
-        attention_masks = torch.stack([f["attention_mask"] for f in features])
-        batch["attention_mask"] = attention_masks
-    
-    return batch
-
+    return {"input_ids": input_ids, "labels": labels}
 
 def evaluate_model(model, tokenizer):
-    # 使用 pipeline 简化生成过程
-    generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
+    full_prompt = "What is the value of pi?"
+    # full_prompt = "To be, or not to be, that is the"
+    
+    max_new_tokens=1024
+    model = model.to(device)
+    inputs = tokenizer(full_prompt, return_tensors="pt").to(device)
+    input_ids = inputs["input_ids"]
+    
+    with torch.no_grad():
+        generation_output = model.generate(
+            input_ids=input_ids,
+            max_length=input_ids.shape[1] + max_new_tokens  # 当前输入长度加上新生成的最大令牌数
+        )
 
-    # 输入文本
-    input_text = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:\n"
-    # input_text = "PI="
+    output = generation_output[0]
+    generated_text = tokenizer.decode(output, skip_special_tokens=True)
 
-    # 生成响应
-    generated_texts = generator(input_text, max_length=1000, num_return_sequences=1)
-
-    # 获取生成的文本
-    generated_text = generated_texts[0]['generated_text']
-    print(f"Generated Text: {generated_text}")
-
+    print(generated_text)
+    # return 0
     # 尝试提取生成的 PI 数值部分
     try:
-        generated_pi_section = generated_text.split('PI=')[-1]
+        start_index = generated_text.index('3.14')
+        generated_pi_section = generated_text[start_index:]
     except IndexError:
         print("Error: The text 'PI=' was not found in the generated text.")
-        return 0
 
     # 清理所有非数字字符
     generated_pi = ''.join(filter(str.isdigit, generated_pi_section))
 
-
     # 读取训练集中的 PI 值并清理所有非数字字符
-    with open('./data_download/memory/pi.txt', 'r', encoding='utf-8') as f:
-        true_pi = ''.join(filter(str.isdigit, f.read().strip()))
+    pi_file_path = './data_download/memory/pi.txt'
+    with open(pi_file_path, 'r', encoding='utf-8') as file:
+        true_pi = ''.join(filter(str.isdigit, file.read().strip()))
 
-    # 比较生成的 PI 与真实 PI
     match_count = 0
     for gen_char, true_char in zip(generated_pi, true_pi):
         if gen_char == true_char:
@@ -117,11 +92,30 @@ def evaluate_model(model, tokenizer):
         else:
             break
 
-    # 打印比较结果
+    print(f"Generated Text: {generated_pi}")
     print(f"Number of correct digits in a row: {match_count}")
 
-    return match_count
 
+def evaluate_generate(model, tokenizer, full_prompt=None):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # full_prompt = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nYour task is to accurately recite the mathematical constant PI, starting with 'PI=3.14...'. Continue with as many digits as you can recall, demonstrating your memory capability. Recite PI=\n### Response:PI=3.141592653589793238462643383279502"
+    # # full_prompt = "PI=3"  # 3.141592653589793238462643383279502
+    # full_prompt = "请背诵圆周率：3.14"
+    full_prompt = "To be, or not to be, that is the question: "
+    max_new_tokens=512
+    # model = model.to(device)
+    inputs = tokenizer(full_prompt, return_tensors="pt")
+    input_ids = inputs["input_ids"]
+    
+    with torch.no_grad():
+        generation_output = model.generate(
+            input_ids=input_ids,
+            max_length=input_ids.shape[1] + max_new_tokens  # 当前输入长度加上新生成的最大令牌数
+        )
+
+    output = generation_output[0]
+    generated_text = tokenizer.decode(output, skip_special_tokens=True)
+    print(generated_text)
     
 def main(args):
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
@@ -142,16 +136,23 @@ def main(args):
     # set up the global model & toknizer
     model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map)
     model, tokenizer = model_helper.get_model()
-
-    # if torch.cuda.device_count() > 1:
-    #     model = torch.nn.DataParallel(model)
-
     # since we load the model in 8-bit, so we need to prepare it for training
-    if args.model == "bloomz":
-         pass
-    else:
-        model = prepare_model_for_kbit_training(model)
+    # model = prepare_model_for_kbit_training(model)
     
+    
+    if args.reset_weight:
+        # 遍历模型的所有参数，并重置它们
+        def reset_parameters(model):
+            for layer in model.children():
+                if hasattr(layer, 'reset_parameters'):
+                    # 如果层有重置参数的方法，直接调用它
+                    layer.reset_parameters()
+                else:
+                    # 否则，递归地对子层进行相同的处理
+                    reset_parameters(layer)
+
+        reset_parameters(model)
+
     if args.peft:
         # setup peft method
         peft_helper = PeftHelper(model_name=args.model, peft_method=args.peft_method)
@@ -175,25 +176,7 @@ def main(args):
     print("The process of federated instruction-tuning has started..")
     training_start_time = time.time()
 
-
-
-    def load_and_tokenize(filepath):
-        with open(filepath, 'r', encoding='utf-8') as file:
-            text = file.read()
-        
-        # 分词并转换为token IDs
-        token_ids = tokenizer.encode(text, truncation=True, max_length=512)
-        
-        # 将列表转换为Tensor
-        tokens_tensor = torch.tensor([token_ids])
-        
-        return tokens_tensor
-
-    # file_path = ''./data_download/memory/pi_tiny.txt'
-    # file_path = './data_download/wikitext-2/wiki.train.tokens'
-    # file_path = './data_download/memory/world_history.jsonl'
-    file_path = './data_download/memory/idiomem.jsonl'
-    train_data = prepare_datasets(tokenizer, file_path)
+    train_data = prepare_datasets(tokenizer, './data_download/memory/pi_tiny.txt')
 
     official_trainer = True
 
@@ -211,8 +194,11 @@ def main(args):
                 load_best_model_at_end=True if args.local_val_set_size > 0 else False,
                 ddp_find_unused_parameters=False if ddp else None,
                 group_by_length=args.group_by_length,
-                dataloader_drop_last=False
+                dataloader_drop_last=False,
+                logging_dir='./logs',            # 日志目录
             )
+
+
 
         # 初始化 Trainer
         trainer = Trainer(
@@ -224,16 +210,49 @@ def main(args):
             # callbacks=[PrintLossCallback(), SaveModelCallback()]  # 添加自定义回调
         )
 
+        layer_names = ['transformer.h.0.self_attention.query_key_value.weight',  
+            'transformer.h.9.self_attention.query_key_value.weight',
+            'transformer.h.14.self_attention.query_key_value.weight',
+            'transformer.h.19.self_attention.query_key_value.weight' 
+            ]
+        
+        def get_weights(model):
+            return {name: param.data.cpu().numpy() for name, param in model.named_parameters()}
+
+        def compute_changes(initial_weights, final_weights):
+            changes = []
+            layer_names = []
+            for name in initial_weights.keys():
+                if "weight" in name:  # Ensuring only weights are considered, not biases
+                    initial_weight = initial_weights[name]
+                    final_weight = final_weights[name]
+                    # Compute the Frobenius norm (Euclidean norm for matrices) of the change
+                    change = np.linalg.norm(final_weight - initial_weight)
+                    changes.append(change)
+                    layer_names.append(name)
+            return layer_names, changes
+        
+        initial_weights = get_weights(model)
         # 开始训练
         trainer.train()
+        final_weights = get_weights(model)
+        
+        layer_names, changes = compute_changes(initial_weights, final_weights)
 
-        # # 评估模型
-        # print("Evaluating model...")
-        # eval_results = trainer.evaluate(eval_dataset=train_data)
+        
+        def plot_changes(layer_names, changes, save_path='weight_changes.png', dpi=300):
+            plt.figure(figsize=(10, 6))
+            plt.bar(range(len(changes)), changes, tick_label=layer_names)
+            plt.xlabel('Layer')
+            plt.ylabel('Change')
+            plt.title('Change in Weights per Layer')
+            plt.xticks(rotation=90)
+            plt.tight_layout()
+            
+            # Save the figure
+            plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
 
-        # # 打印评估结果
-        # print(f"Evaluation results: {eval_results}")
-
+        plot_changes(layer_names, changes, save_path='weight_changes.png', dpi=300)
         # 保存模型和 tokenizer
         model.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)
@@ -242,27 +261,19 @@ def main(args):
         training_time = time.time() - training_start_time
         print(f"Total training time: {datetime.timedelta(seconds=int(training_time))}")
 
-        # # 评估模型
-        # print("Evaluating model...")
-        # evaluate_model(model, tokenizer)
+        if args.save_flag:
+            torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
+            config.save_pretrained("./output")
+        
+        # 评估模型
+        print("Evaluating model...")
+        evaluate_model(model, tokenizer)
 
         
 
     else:
         # 使用自定义训练函数
         model = train_model(model, train_data, tokenizer, args)
-
-
-    if args.model == "bloomz":
-        # 保存模型和 tokenizer
-        model.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
-    
-    else:
-        torch.save(get_peft_model_state_dict(model), os.path.join("./output/adapter_model.bin"))
-        config.save_pretrained("./output")
-        print("Save successfully!")
-
 
 
 def train_model(model, train_dataset, tokenizer, args):

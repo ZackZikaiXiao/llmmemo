@@ -23,3 +23,7 @@ test.txt
 /bigscience
 /leaf
 /llama2-7b-chat
+/logs
+/bloomz_fullfinetune
+/Llama2-7b-chat
+/TowerInstruct7b

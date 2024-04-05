@@ -12,7 +12,7 @@ class PeftHelper():
         self.peft_method = peft_method
 
     def get_peft_model_for_training(self, args ,model):
-        if self.model_name == 'alpaca' or self.model_name == 'Llama2-7B':
+        if self.model_name == 'alpaca' or self.model_name == 'llama2-7b' or self.model_name == 'Tower-Instruct-7b':
             if self.peft_method == 'lora':
                 return get_lora_peft_model(args, model)
             elif self.peft_method == 'prefix_tuning':
@@ -43,6 +43,7 @@ def get_lora_peft_model(args, model):
         lora_dropout=args.lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
+        # layers_to_transform=[24,25,26,27,28,29]
     )
     model = get_peft_model(model, config)
     return model, config

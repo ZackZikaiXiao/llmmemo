@@ -5,6 +5,7 @@ import os
 base_model_path = {
     'alpaca': './alpaca_native',
     'llama2-7b': './Llama2-7b-chat', # ./output/mtob/grammer_book\wordlist\sentence_pair   ./Llama2-7b-chat
+    'tinyllama-1.1b': './TinyLlama-1.1B-Chat-v1.0',
     'Tower-Instruct-7b': './TowerInstruct7b',
     'bloomz': './bigscience/bloomz-560m',
 }
@@ -29,12 +30,12 @@ data_paths = {
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Knowledge Restore and Recall via Memory")
-    parser.add_argument('--train_mode', type=bool, default=False, help='evaluate')
+    parser.add_argument('--train_mode', type=bool, default=True, help='evaluate')
     parser.add_argument('--evaluate_mode', type=bool, default=True, help='evaluate')
     
 
-    parser.add_argument('--model', type=str, default='Tower-Instruct-7b', help='which pretrained model to use, now support Llama2-7B and alpaca')  # llama2-7b, Tower-Instruct-7b, alpaca, bloomz, 
-    parser.add_argument('--dataset', type=str, default='sentence_pair', help='Dataset to evaluate')  # grammar_book, wordlist, sentence_pair
+    parser.add_argument('--model', type=str, default='tinyllama-1.1b', help='which pretrained model to use')  # llama2-7b, Tower-Instruct-7b, alpaca, bloomz, 
+    parser.add_argument('--dataset', type=str, default='grammar_book', help='Dataset to evaluate')  # grammar_book, wordlist, sentence_pair
 
     parser.add_argument('--num_epochs', type=int, default=8, help='number of epochs')   # 8
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')    # 64
@@ -44,7 +45,7 @@ def parse_args():
 
     parser.add_argument('--peft', type=str, default=True, help='peft mode')
     parser.add_argument('--peft_method', type=str, default='lora', help='which peft method to use, now support lora and prefix_tuning')
-    parser.add_argument('--load_peft_weight', type=str, default=True, help='Whether to resume from checkpoint of peft training')
+    parser.add_argument('--load_peft_weight', type=str, default=False, help='Whether to resume from checkpoint of peft training')
     parser.add_argument('--load_peft_path', type=str, default='./output/mtob/Tower-Instruct-7b/wordlist/lora_GW', help='Path of loading the PEFT weight')  # Default means args.output_dir
 
     parser.add_argument('--lora_r', type=int, default=8, help='LoRA r parameter')
@@ -61,7 +62,6 @@ def parse_args():
     parser.add_argument('--prompt_template_name', type=str, default="alpaca", help='Prompt template name')
     parser.add_argument('--datapath', type=str, default='-', help='Path of dataset')  # grammar_book, wordlist, sentence_pair
     
-
 
     args = parser.parse_args()
     args.global_model = base_model_path[args.model]

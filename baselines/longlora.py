@@ -24,7 +24,7 @@ from transformers import TrainingArguments, Trainer
 from transformers import pipeline
 from inference import Evaluator
 import torch.nn as nn
-
+import deepspeed
 
 # offline
 os.environ['HF_DATASETS_OFFLINE'] = '1'
@@ -59,11 +59,8 @@ class Pipeline():
 
     def model_build(self, args):
         device_map = "auto"
-        world_size = int(os.environ.get("WORLD_SIZE", 1))
-        self.ddp = world_size != 1
-        if self.ddp:
-            device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
-            gradient_accumulation_steps = gradient_accumulation_steps // world_size
+        self.world_size = int(os.environ.get("WORLD_SIZE", 1))
+        self.ddp = self.world_size != 1
         # set up the global model & toknizer
         model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map, peft = args.peft)
         model, tokenizer = model_helper.get_model()
@@ -151,7 +148,12 @@ class Pipeline():
 
 
     def train(self, args, model, tokenizer):
-        gradient_accumulation_steps = args.batch_size // args.micro_batch_size
+        if self.ddp:
+            print("torch-run mode.")
+            gradient_accumulation_steps = args.batch_size // args.micro_batch_size
+            gradient_accumulation_steps = gradient_accumulation_steps // self.world_size
+        else:
+            gradient_accumulation_steps = args.batch_size // args.micro_batch_size
         
             
         print("The process of knowledge restoring and recalling via memory start:")
@@ -191,7 +193,8 @@ class Pipeline():
                     load_best_model_at_end=True if args.val_set_size > 0 else False,
                     ddp_find_unused_parameters=False if self.ddp else None,
                     group_by_length=args.group_by_length,
-                    dataloader_drop_last=False
+                    dataloader_drop_last=False,
+                    deepspeed="/home/zikaixiao/zikaixiao/LongLoRA-main/ds_configs/stage2.json"
                 )
 
             # 初始化 Trainer

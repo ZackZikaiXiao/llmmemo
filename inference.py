@@ -24,8 +24,8 @@ from peft import (
     LoraConfig,
     get_peft_model,
     get_peft_model_state_dict,
-    prepare_model_for_int8_training,
     set_peft_model_state_dict,
+    prepare_model_for_kbit_training 
 )
 
 from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer,AutoTokenizer
@@ -67,7 +67,7 @@ class Evaluator():
             model_helper = ModelHelper(global_model_name=args.model, global_model_path=args.global_model, device_map=device_map)
             self.model, self.tokenizer = model_helper.get_model()
 
-            self.model = prepare_model_for_int8_training(self.model)
+            self.model = prepare_model_for_kbit_training(self.model)
             if args.be_trained:         # lora微调过
                 config = LoraConfig.from_pretrained(args.lora_config_path)
                 lora_weights = torch.load(args.lora_weights_path)
@@ -128,7 +128,7 @@ class Evaluator():
                     torch_dtype=torch.float16,
                     device_map="auto",
                 )
-                model = prepare_model_for_int8_training(model)
+                model = prepare_model_for_kbit_training(model)
                 if args.be_trained:         # lora微调过
                     config = LoraConfig.from_pretrained(args.lora_config_path)
                     lora_weights = torch.load(args.lora_weights_path)

@@ -12,7 +12,7 @@ class PeftHelper():
         self.peft_method = peft_method
 
     def get_peft_model_for_training(self, args ,model):
-        if self.model_name == 'alpaca' or self.model_name == 'llama2-7b' or self.model_name == 'Tower-Instruct-7b':
+        if self.model_name == 'alpaca' or self.model_name == 'llama2-7b' or self.model_name == 'Tower-Instruct-7b' or self.model_name == 'tinyllama-1.1b':
             if self.peft_method == 'lora':
                 return get_lora_peft_model(args, model)
             elif self.peft_method == 'prefix_tuning':
